@@ -5,9 +5,11 @@ import psutil
 import time
 import vdf
 import winreg
+import ctypes
 
 
 # 获取 Steam 安装路径
+
 def get_steam_install_path():
     try:
         reg_key = winreg.OpenKey(winreg.HKEY_CURRENT_USER, r"Software\Valve\Steam")
@@ -104,6 +106,68 @@ def find_most_recent_account(data, get_key, get_value):
             return steam_id, account_info
     return None, None
 
+def is_admin():
+    try:
+        # 检查当前进程是否以管理员权限运行
+        return ctypes.windll.shell32.IsUserAnAdmin() != 0
+    except:
+        return False
+
+def manage_steam_non_admin(steam_install_path,accounts):
+
+
+    # 检查 Steam 是否已经在运行
+    if not is_steam_running():
+        # 如果 Steam 没有运行，启动 Steam 并登录最近使用的账号
+        steam_id, account_info = find_most_recent_account(accounts, 'MostRecent', "1")
+        if account_info:
+            print(f"Steam 未启动，启动 Steam 登入账号 {account_info['AccountName']}")
+            start_steam(os.path.join(steam_install_path, 'Steam.exe'))
+    else:
+        # 如果 Steam 已经启动，切换账号
+        print("Steam 已经启动，关闭 Steam 并准备切换账号...")
+        kill_steam_processes()
+        time.sleep(3)  # 等待进程完全结束
+
+        # 获取下一个账号并切换
+        steam_id, current_account = find_most_recent_account(accounts, 'MostRecent', "0")
+        if current_account:
+            modify_registry(current_account['AccountName'])
+            print(f"切换账号为: {current_account['AccountName']}")
+            # 重新启动 Steam 客户端
+            start_steam(os.path.join(steam_install_path, 'Steam.exe'))
+
+def manage_steam_admin(steam_install_path,accounts):
+
+    # 显示所有账户信息
+    print("选择登入账号:")
+    num = 0
+    account_list = []  # 用来保存每个账号的ID和相关信息，便于后续选择
+    for account_id, account_info in accounts.items():
+        account_list.append((num, account_id, account_info))
+        print(f'{num}: {account_info["AccountName"]}, {account_info["PersonaName"]}')
+        num += 1
+
+    # 用户输入选择的编号
+    selected_account = None
+    while selected_account is None:
+        try:
+            choice = int(input("请输入账号编号选择："))  # 提示用户输入数字
+            if 0 <= choice < len(account_list):
+                selected_account = account_list[choice]
+                account_id = selected_account[1]
+                account_info = accounts.get(account_id)
+                print(f"您选择的账号是: {account_info['AccountName']}, {account_info['PersonaName']}")
+                kill_steam_processes()
+                time.sleep(3)  # 等待进程完全结束
+                modify_registry(account_info['AccountName'])
+                # 重新启动 Steam 客户端
+                start_steam(os.path.join(steam_install_path, 'Steam.exe'))
+            else:
+                print("请输入有效的编号。")
+        except ValueError:
+            print("无效输入，请输入一个数字。")
+
 
 # 主要逻辑
 def main():
@@ -126,26 +190,12 @@ def main():
             print("没有找到任何 Steam 账户。")
             return
 
-        # 检查 Steam 是否已经在运行
-        if not is_steam_running():
-            # 如果 Steam 没有运行，启动 Steam 并登录最近使用的账号
-            steam_id, account_info = find_most_recent_account(accounts, 'MostRecent', "1")
-            if account_info:
-                print(f"Steam 未启动，启动 Steam 登入账号 {account_info['AccountName']}")
-                start_steam(os.path.join(steam_install_path, 'Steam.exe'))
-        else:
-            # 如果 Steam 已经启动，切换账号
-            print("Steam 已经启动，关闭 Steam 并准备切换账号...")
-            kill_steam_processes()
-            time.sleep(3)  # 等待进程完全结束
 
-            # 获取下一个账号并切换
-            steam_id, current_account = find_most_recent_account(accounts, 'MostRecent', "0")
-            if current_account:
-                modify_registry(current_account['AccountName'])
-                print(f"切换账号为: {current_account['AccountName']}")
-                # 重新启动 Steam 客户端
-                start_steam(os.path.join(steam_install_path, 'Steam.exe'))
+        # 判断当前是否是管理员权限，并选择相应的函数
+        if is_admin():  # 假设 is_admin() 函数已定义，判断是否为管理员权限
+            manage_steam_admin(steam_install_path,accounts)
+        else:
+            manage_steam_non_admin(steam_install_path,accounts)
 
     except Exception as e:
         print(f"程序发生错误: {e}")
